@@ -94,3 +94,46 @@ class NTMCell(object):
         
         return new_output, state
 
+    def new_output(self, output):
+        """Logistic sigmoid output layers"""
+        
+        with tf.variable_scope('output')
+        return tf.sigmoid(Linear(output, self.output_dim, name = 'output'))
+
+    def build_controller(self, input_,
+            read_list_prev, output_list_prev, hidden_list_prev):
+        """Build LSTM controller."""
+
+        with tf.variable_scope("controller"):
+            output_list = []
+            hidden_list = []
+            for layer_idx in xrange(self.controller_layer_size):
+                o_prev = output_list_prev[layer_idx]
+                h_prev = hidden_list_prev[layer_idx]
+
+                if layer_idx == 0:
+                    def new_gate(gate_name):
+                        return linear([input_, o_prev] + read_list_prev,
+                                output_size = self.controller_dim,
+                                bias = True,
+                                scope = "%s_gate_%s" % (gate_name, layer_idx))
+                else :
+                    def new_gate(gate_name):
+                        return linear([output_list[-1], o_prev],
+                                output_size = self.controller_dim,
+                                bias = True,
+                                scope = "%s_gate_%s" % (gate_name, layer_idx))
+                # input, forget, and output gates for LSTM
+                i = tf.sigmoid(new_gate('input'))
+                f = tf.sigmoid(new_gate('forget'))
+                o = tf.sigmoid(new_gate('output'))
+                update = tf.tanh(new_gate('update'))
+
+                # update the sate of the LSTM cell
+                hid =  tf.add_n([f*h_prev, i * update])
+                out = o * tf.tanh(hid)
+                
+                hidden_list.append(hid)
+                output_list.append(out)
+            
+            return output_list, hidden_list
