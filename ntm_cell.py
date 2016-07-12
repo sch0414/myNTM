@@ -97,8 +97,8 @@ class NTMCell(object):
     def new_output(self, output):
         """Logistic sigmoid output layers"""
         
-        with tf.variable_scope('output')
-        return tf.sigmoid(Linear(output, self.output_dim, name = 'output'))
+        with tf.variable_scope('output'):
+            return tf.sigmoid(Linear(output, self.output_dim, name = 'output'))
 
     def build_controller(self, input_,
             read_list_prev, output_list_prev, hidden_list_prev):
@@ -164,10 +164,10 @@ class NTMCell(object):
                 write_w_prev = write_w_list_prev[0]
                 write_w, write, eras = self.build_write_head(M_prev, tf.squeeze(write_w_prev), last_output, 0)
 
-                M_erase = tf.ones([self.mem_size, self.mem_dim])-outer product(write_w, erase)
+                M_erase = tf.ones([self.mem_size, self.mem_dim])-outer_product(write_w, erase)
                 M_write = outer_product(write_w, write)
 
-            else :
+            else:
                 write_w_list = []
                 write_list = []
                 erase_list = []
@@ -203,7 +203,7 @@ class NTMCell(object):
     def build_head(self, M_prev, w_prev, last_output, is_read, idx):
         scope = "read" if is_read else "write"
         
-        with tf.variable_scope(scope)
+        with tf.variable_scope(scope):
             # Amplify or attenuage the precision
             with tf.variable_scope("k"):
                 k = tf.tanh(Linear(last_output, self.mem_dim, name = 'k_%s' % idx))
