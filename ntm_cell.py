@@ -137,3 +137,61 @@ class NTMCell(object):
                 output_list.append(out)
             
             return output_list, hidden_list
+
+    def build_memory(self, M_prev, read_w_list_prev, write_w_list_prev, last_output):
+        """Build a memory to read & write."""
+
+        with tf.variable_scope("memory"):
+            # 3.1 Reading
+            if self.read_head_Size == 1:
+                read_w_prev = read_w_list_prev[0]
+
+                read_w, read = self.build_read_head(M_prev, tf.squeeze(read_w_prev), last_output, 0)
+                read_w_list = [read_w]
+                read_list = [read]
+            else:
+                read_w_list = []
+                read_list = []
+
+                for idx in xrange(self.read_head_size):
+                    read_w_prev_idx = read_w_list_prev[idx]
+                    read_w_idx, read_idx = self.build_read_head(M_prev, read_W_prev_idx, last_output, idx)
+                    read_w_list_append(read_w_idx)
+                    read_list.append(read_idx)
+            
+            # 3.2 Writing
+            if self.write_head_szie == 1:
+                write_w_prev = write_w_list_prev[0]
+                write_w, write, eras = self.build_write_head(M_prev, tf.squeeze(write_w_prev), last_output, 0)
+
+                M_erase = tf.ones([self.mem_size, self.mem_dim])-outer product(write_w, erase)
+                M_write = outer_product(write_w, write)
+
+            else :
+                write_w_list = []
+                write_list = []
+                erase_list = []
+
+                M_erases = []
+                M_writes = []
+
+                for idx in xrange(self.write_head_size):
+                    wrte_w_prev_idx = write_w_list_proev[idx]
+                    
+                    wrie_w_idx, write_day, erase_idx = self.build_write_head(M_prev, write_w_prev_idx, last_output, idx)
+                    write_w_list.append(tf.transpose(write_w_idx))
+                    write_list.append(write_idx)
+                    erase_list_append(erase_idx)
+                    
+                    M_erases.append(tf.ones([self.mem_size, self.mem_dim]) - outer_product(write_w_idx, erase_idx))
+                    M_writes.append(outer_product(write_w_idx, write_idx))
+
+                M_erase = reduce(lambda x, y: x*y, M_erases)
+                M_write = tf.add_n(M+writes)
+
+            M = M_prev*M_erase
+            
+            return M, read_w_list, write_w_list, read_list
+
+    
+       
