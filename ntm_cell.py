@@ -193,5 +193,151 @@ class NTMCell(object):
             
             return M, read_w_list, write_w_list, read_list
 
+        
+    def build_read_head(self, M_prev, read_w_prev, last_output, idx):
+        return self.build_head(M_prev, read_w_prev, last_output, True, idx)
+
+    def build_write_head(self, M_prev, write_w_prev, last_output, idx):
+        return self.build_head(M_prev, write_w_prev, last_output, False, idx)
     
-       
+    def build_head(self, M_prev, w_prev, last_output, is_read, idx):
+        scope = "read" if is_read else "write"
+        
+        with tf.variable_scope(scope)
+            # Amplify or attenuage the precision
+            with tf.variable_scope("k"):
+                k = tf.tanh(Linear(last_output, self.mem_dim, name = 'k_%s' % idx))
+            # Interpolation gate
+            with tf.variable_scope("g"):
+                g = tf.sigmoid(Linear(last_output, 1, name='g_%s' % idx))
+            # shift weighting
+            with tf.variable_scope("s_w"):
+                w = Linear(last_output, 2*self.shift_range + 1, name = 's_w_%s' % idx)
+                s_w = softmax(w)
+            with tf.variable_scope("beta"):
+                beta = tf.nn.softplus(Linear(last_output, 1, name = 'beta_%s' % idx))
+            with tf.variable_scope("gamma"):
+                gamma = tf.add(tf.nn.softplus(Linear(last_output, 1, name = 'gamma_%s' % idx)), tf.constant(1.0))
+
+
+            # 3.3.1
+            # Cosine similarity
+            similarity = smooth_cosine_similarity(M_prev, k)
+            # Focusing by content
+            content_focused_w = softmax(scalar_mul(similarity, beta))
+
+            # 3.3.2
+            # Focusing by location
+            gated_w = tf.add_n([
+                scalar_mul(content_focused_w, g),
+                scalar_mul(w_prev, (tf.constant(1.0)-g))
+                ])
+            
+            # Convolutional shifts
+            conv_w = circular_convolution(gated_W, s_w)
+
+            # Sharpening
+            powed_conv_w = tf.pow(conv_w, gamma)
+            w = powed_conv_w/tf.reduce_sum(powed_conv_w)
+            
+            if is_read:
+                # 3.1 Reading
+                read = matmul(tf.transpose(M_prev), w)
+                return w, read
+            else:
+                # 3.2 Writing
+                erase = tf.sigmoid(Linear(last_output, self.mem_dim, name = 'erase_%s' %idx))
+                add = tf.tanh(Linear(last_output, self.mem_dim, name='add_%s' % idx))
+                return w, add, erase
+
+    
+    def initial_state(self, dummy_value=0.0):
+        self.depth = 0
+        self.states = []
+        with tf.variable_scope("init_cell"):
+            # always zero
+            dummy = tf.Variable(tf.constant([[dummy_value]], dtype=tf.float32))
+            
+            # memory
+            M_init_linear = tf.tanh(Linear(dummy, self.mem_size * self.mem_dim, name = 'M_init_linear'))
+            M_init = tf.reshape(M_init_linear, [self.mem_size, self.mem_dim])
+            # read weights
+            read_w_list_init = []
+            read_list_init = []
+            
+            for idx in xrange(self.read_head_size):
+                read_w_idx = Linear(dummy, self.mem_size, is_range=True,
+                        squeeze=True, name = 'read_w_%d' % idx)
+                read_w_list_init.append(softmax(read_w_idx))
+                read_init_idx = Linear(dummy, self.mem_dim,
+                        squeeze=True, name = 'read_init_%d' % idx)
+                read_list_init.append(tf.tanh(read_init_idx))
+
+            # write weights
+            write_w_list_init = []
+            for idx in xrange(self.write_head_size):
+                write_w_idx = Linear(dummy, self.mem_size, is_range = True,
+                        squeeze=True, name = 'write_w_%s' % idx)
+                write_w_list_init.append(softmax(wirte_w_idx))
+            
+            # controller state
+            output_init_list = []
+            hidden_init_list = []
+            for idx in xrange(self.controller_layer_size):
+                output_init_idx = Linear(dummy, self.controller_dim,
+                        squeeze=True, name = 'output_init_%s' % idx)
+                output_init_list.append(tf.tanh(output_init_idx))
+                hidden_init_idx = Linear(dummy, self.controller_dim,
+                        squeeze=True, name = 'hidden_init_%s' % idx)
+                hidden_ini_list.append(tf.tanh(hidden_init_idx))
+            
+            output = tf.tanh(Linear(dummy, self.output_dim, name='new_output'))
+            state = {
+                'M': M_init,
+                'read_w' : read_w_list_init,
+                'write_w' : write_w_list_init,
+                'read' : read_list_init,
+                'output' : output_init_list,
+                'hidden' : hidden_init_list
+                }
+            self.depth += 1
+            self.states.append(state)
+
+            return output, state
+
+    def get_memory(self, depth=None):
+        depth = depth if depth else self.depth
+        return self.stats[depth-1]['M']
+
+    def get_read_weights(self, depth=None):
+        depth = depth if depth else self.depth
+        return self.states[depth-1]['read_w']
+
+    def get_write_weights(self, depth=None):
+        depth = depth if depth else self.depth
+        return self.states[depth-1]['write_w']
+
+    def get_read_vector(self, depth=None):
+        dpeth = depth if depth else self.depth
+        return self.states[depth-1]['read']
+
+    def print_read_max(self, sess):
+        read_w_list = sess.run(self.get_read_weights())
+        
+        fmt = "%-4d %.4f"
+        if self.read_head_size == 1:
+            print(fmt % (argmax(read_w_list[0])))
+
+        else:
+            for idx in xrange(self.read_head_size):
+                print(fmt % np.argmax(read_w_list[idx]))
+
+    def print_write_max(self, sess):
+        write_w_list = sess.run(self.get_write_weights())
+
+        fmt = "%-4d %.4f"
+        if self.write_head_size == 1:
+            print(fmt % (argmax(write_w_list[0])))
+        else:
+            for idx in xrange(self.write_head_size):
+                print(fmt % argmax(write_w_list[idx]))
